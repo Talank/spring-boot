@@ -4,6 +4,7 @@ on:
     tags:
       - v4.1.0-M[0-9]
       - v4.1.0-RC[0-9]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -11,7 +12,7 @@ concurrency:
 jobs:
   build-and-stage-release:
     name: Build and Stage Release
-    if: ${{ github.repository == 'spring-projects/spring-boot' }}
+    if: always()
     runs-on: ${{ vars.UBUNTU_MEDIUM || 'ubuntu-latest' }}
     steps:
       - name: Check Out Code
@@ -53,11 +54,11 @@ jobs:
       version: ${{ needs.build-and-stage-release.outputs.version }}
   sync-to-maven-central:
     name: Sync to Maven Central
-    if: ${{ !vars.COMMERCIAL }}
+    if: always()
     needs:
       - build-and-stage-release
       - verify
-    runs-on: ${{ vars.UBUNTU_SMALL || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check Out Code
         uses: actions/checkout@v6
@@ -68,6 +69,13 @@ jobs:
           central-token-username: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           jfrog-cli-config-token: ${{ secrets.JF_ARTIFACTORY_SPRING }}
           spring-boot-version: ${{ needs.build-and-stage-release.outputs.version }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+      fail-fast: false
   promote-release:
     name: Promote Release
     needs:
@@ -80,10 +88,11 @@ jobs:
         env:
           JF_ENV_SPRING: ${{ secrets.JF_ARTIFACTORY_SPRING }}
       - name: Promote build
-        run: jfrog rt build-promote ${{ format('spring-boot-{0}', needs.build-and-stage-release.outputs.version)}} ${{ github.run_number }} libs-milestone-local
+        run: jfrog rt build-promote ${{ format('spring-boot-{0}', needs.build-and-stage-release.outputs.version)}} ${{ 
+          github.run_number }} libs-milestone-local
   publish-gradle-plugin:
     name: Publish Gradle Plugin
-    if: ${{ !vars.COMMERCIAL }}
+    if: always()
     needs:
       - build-and-stage-release
       - sync-to-maven-central
@@ -110,7 +119,8 @@ jobs:
       - name: Run Deploy Docs Workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run deploy-docs.yml --repo ${{ github.repository }} -r docs-build -f build-refname=${{ github.ref_name }} -f build-version=${{ needs.build-and-stage-release.outputs.version }}
+        run: gh workflow run deploy-docs.yml --repo ${{ github.repository }} -r docs-build -f build-refname=${{ 
+          github.ref_name }} -f build-version=${{ needs.build-and-stage-release.outputs.version }}
   create-github-release:
     name: Create GitHub Release
     needs:
