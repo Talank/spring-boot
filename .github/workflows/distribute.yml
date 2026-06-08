@@ -1,20 +1,6 @@
 name: Distribute
 on:
   workflow_dispatch:
-    inputs:
-      build-number:
-        description: 'Number of the build to use to create the bundle'
-        required: true
-        type: string
-      create-bundle:
-        description: 'Whether to create the bundle. If unchecked, only the bundle distribution is executed'
-        required: true
-        type: boolean
-        default: true
-      version:
-        description: 'Version to bundle and distribute'
-        required: true
-        type: string
 permissions:
   contents: read
 jobs:
@@ -43,3 +29,5 @@ jobs:
             "https://usw1.packages.broadcom.com/lifecycle/api/v2/distribution/distribute/TNZ-spring-boot-commercial/${{ inputs.version }}?project=spring" \
             -d '{"auto_create_missing_repositories": "false", "distribution_rules": [{"site_name": "JP-SaaS"}], "modifications": {"mappings": [{"input": "spring-enterprise-maven-prod-local/(.*)", "output": "spring-enterprise/$1"}]}}' | \
             jq -e 'if has("id") then . else halt_error end'
+    strategy:
+      fail-fast: false
