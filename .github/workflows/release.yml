@@ -1,8 +1,6 @@
 name: Release
 on:
-  push:
-    tags:
-      - v4.1.[0-9]+
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
@@ -10,8 +8,8 @@ concurrency:
 jobs:
   build-and-stage-release:
     name: Build and Stage Release
-    if: ${{ github.repository == 'spring-projects/spring-boot' || github.repository == 'spring-projects/spring-boot-commercial' }}
-    runs-on: ${{ vars.UBUNTU_MEDIUM || 'ubuntu-latest' }}
+    if: always()
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check Out Code
         uses: actions/checkout@v6
@@ -29,7 +27,9 @@ jobs:
       - name: Stage Release
         uses: spring-io/artifactory-deploy-action@926d7f7cc810569395346bf3a4d91b380b3e355b # v0.0.4
         with:
-          build-name: ${{ vars.COMMERCIAL && format('spring-boot-commercial-{0}', steps.build-and-publish.outputs.version) || format('spring-boot-{0}', steps.build-and-publish.outputs.version) }}
+          build-name: ${{ vars.COMMERCIAL && format('spring-boot-commercial-{0}', 
+            steps.build-and-publish.outputs.version) || format('spring-boot-{0}', 
+            steps.build-and-publish.outputs.version) }}
           folder: 'deployment-repository'
           password: ${{ vars.COMMERCIAL && secrets.COMMERCIAL_ARTIFACTORY_PASSWORD || secrets.ARTIFACTORY_PASSWORD }}
           project: ${{ vars.COMMERCIAL && 'spring' }}
@@ -48,6 +48,13 @@ jobs:
           webhook-url: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
     outputs:
       version: ${{ steps.build-and-publish.outputs.version }}
+    strategy:
+      matrix:
+        os: &id001
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+      fail-fast: false
   verify:
     name: Verify
     needs: build-and-stage-release
@@ -64,11 +71,11 @@ jobs:
       version: ${{ needs.build-and-stage-release.outputs.version }}
   sync-to-maven-central:
     name: Sync to Maven Central
-    if: ${{ !vars.COMMERCIAL }}
+    if: always()
     needs:
       - build-and-stage-release
       - verify
-    runs-on: ${{ vars.UBUNTU_SMALL || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check Out Code
         uses: actions/checkout@v6
@@ -79,23 +86,35 @@ jobs:
           central-token-username: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           jfrog-cli-config-token: ${{ secrets.JF_ARTIFACTORY_SPRING }}
           spring-boot-version: ${{ needs.build-and-stage-release.outputs.version }}
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   promote-release:
     name: Promote Release
     needs:
       - build-and-stage-release
       - sync-to-maven-central
-    runs-on: ${{ vars.UBUNTU_SMALL || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@1641575d87647fb969c0545f0b6a76873e328b7c # v5.0.0
         env:
-          JF_ENV_SPRING: ${{ vars.COMMERCIAL && secrets.COMMERCIAL_JF_ARTIFACTORY_SPRING || secrets.JF_ARTIFACTORY_SPRING }}
+          JF_ENV_SPRING: ${{ vars.COMMERCIAL && secrets.COMMERCIAL_JF_ARTIFACTORY_SPRING || 
+            secrets.JF_ARTIFACTORY_SPRING }}
       - name: Promote open source build
         if: ${{ !vars.COMMERCIAL }}
-        run: jfrog rt build-promote ${{ format('spring-boot-{0}', needs.build-and-stage-release.outputs.version)}} ${{ github.run_number }} libs-release-local
+        run: jfrog rt build-promote ${{ format('spring-boot-{0}', needs.build-and-stage-release.outputs.version)}} ${{ 
+          github.run_number }} libs-release-local
       - name: Promote commercial build
         if: ${{ vars.COMMERCIAL }}
-        run: jfrog rt build-promote ${{ format('spring-boot-commercial-{0}', needs.build-and-stage-release.outputs.version)}} ${{ github.run_number }} spring-enterprise-maven-prod-local --project spring
+        run: jfrog rt build-promote ${{ format('spring-boot-commercial-{0}', 
+          needs.build-and-stage-release.outputs.version)}} ${{ github.run_number }} spring-enterprise-maven-prod-local 
+          --project spring
+    strategy:
+      matrix:
+        os: *id001
+      fail-fast: false
   publish-gradle-plugin:
     name: Publish Gradle Plugin
     if: ${{ !vars.COMMERCIAL }}
@@ -156,7 +175,8 @@ jobs:
       - name: Run Deploy Docs Workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run deploy-docs.yml --repo ${{ github.repository }} -r docs-build -f build-refname=${{ github.ref_name }} -f build-version=${{ needs.build-and-stage-release.outputs.version }}
+        run: gh workflow run deploy-docs.yml --repo ${{ github.repository }} -r docs-build -f build-refname=${{ 
+          github.ref_name }} -f build-version=${{ needs.build-and-stage-release.outputs.version }}
   create-github-release:
     name: Create GitHub Release
     needs:
